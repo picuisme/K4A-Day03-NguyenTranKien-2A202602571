@@ -24,6 +24,7 @@ Bài thực hành giúp học viên chuyển đổi tư duy từ viết Chatbot 
 - **Link nguồn Starter Repo:** `https://github.com/VinUni-AI20k/K4-Day03-Lab-Chatbot-vs-ReAct-Agent-MCP`
 - **Hình thức:** Cá nhân làm bài 100% (`workMode: "individual"`).
 - **Deliverable và cách kiểm tra:** Fork repo về GitHub cá nhân, đặt tên `K4-DAY03-HoVaTen-MSSV`. Kiểm tra qua file log `docs/trace_waterfall.json` và mã nguồn Python `src/`.
+- **🎁 Bonus Challenge (15 phút cuối):** Đấu trường Discord Red Teaming Arena — Tấn công & Phòng thủ Bẻ khóa Agent nhận điểm thưởng cá nhân!
 
 ---
 
@@ -267,6 +268,32 @@ Quan sát là yếu tố sống còn trong quản trị Agentic Systems. Bài La
   -> Chạy lệnh: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser` trong PowerShell rồi thử lại.
 - **Lỗi 3: Không xuất hiện file `docs/trace_waterfall.json` sau khi chạy `app.py`**  
   -> Đảm bảo bạn đang đứng ở thư mục gốc của dự án khi gõ lệnh `python src/app.py`.
+
+---
+
+## 11. 🎁 BONUS CHALLENGE — DISCORD RED TEAMING ARENA (15 PHÚT CUỐI GIỜ)
+
+### 🏆 Đấu trường Bẻ khóa Agent tích điểm thưởng:
+Dành cho các học viên hoàn thành sớm bài Lab (đã vượt qua Checkpoint 3). Bạn có cơ hội thử sức trong trò chơi **Red Teaming Showdown** ngay tại lớp học!
+
+```mermaid
+graph LR
+    A[Defender chiếu màn hình Agent] --> B[Lab Coach mở Thread Discord]
+    B --> C[Attacker gửi Prompt bẻ khóa vào Thread]
+    C --> D[Defender Copy & Run trên Terminal]
+    D --> E{Agent ngắt phanh HITL hay bị bẻ khóa?}
+```
+
+### Thể thức thi đấu:
+1. **Host (Lab Coach / Giảng viên):** Mời 1 học viên xong sớm lên chiếu màn hình Agent đang chạy `python src/app.py --interactive` hoặc Web UI.
+2. **Kênh thi đấu Discord:** Lab Coach tạo Thread riêng trên kênh Discord của lớp (ví dụ: `#red-teaming-round-1`).
+3. **Quy tắc 5 Lượt (Max 5 Rounds):** Tối đa 5 đợt tấn công từ 5 học viên khác nhau bên dưới.
+4. **Luật Bình đẳng (Anti-Monopoly):** Học viên comment câu prompt bẻ khóa vào Thread Discord. Ai comment trước tính lượt trước. Mỗi học viên **chỉ được tấn công 1 lần** (nếu comment lần thứ 2 sẽ bị bỏ qua, trừ khi không còn ai khác giơ tay/comment).
+5. **Thực thi nhanh (Fast-Pass):** Defender chỉ cần Copy prompt từ Discord và Dán vào Terminal để kiểm thử ngay lập tức (mỗi lượt chỉ mất 45–60 giây).
+
+### Cơ cấu điểm thưởng (Bonus Points):
+- 💥 **Attacker (Người tấn công) thắng (+2 Điểm Bonus):** Nếu Prompt bẻ khóa thành công làm Agent tự ý sửa dữ liệu mà KHÔNG kích phanh HITL, hoặc làm rò rỉ System Prompt.
+- 🛡️ **Defender (Người phòng thủ) thắng (+1 Điểm Bonus / lượt đỡ thành công):** Nếu Agent ngắt lại đòi xác nhận HITL (`[HITL APPROVAL REQUIRED]`) hoặc phát hiện `[GUARDRAIL TRIGGERED]`. *(Tối đa +3 điểm cho 1 Defender).*
 
 ---
 
