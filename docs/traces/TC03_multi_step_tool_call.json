@@ -13,11 +13,60 @@
   },
   {
     "step": 1,
-    "action_type": "FINAL_ANSWER",
-    "thought": "Lỗi khi gọi Gemini API.",
-    "output": "[Gemini Exception]: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.5-flash\\nPlease retry in 42.219219407s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-3.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '42s'}]}}",
+    "action_type": "TOOL_EXECUTION",
+    "thought": "Khách hàng yêu cầu kiểm tra tình trạng đơn hàng ORD2026002 trước khi đặt lịch lấy hàng bổ sung. Cần gọi tool 'track_order' với mã đơn ORD2026002 để lấy thông tin chi tiết.",
+    "tool_name": "track_order",
+    "arguments": {
+      "order_id": "ORD2026002"
+    },
+    "observation": {
+      "status": "SUCCESS",
+      "order_id": "ORD2026002",
+      "data": {
+        "customer_name": "Trần Thị Bình",
+        "product": "Bàn phím cơ Keychron K8",
+        "warehouse": "Kho Tổng Hồ Chí Minh",
+        "carrier": "Viettel Post",
+        "status": "Đã giao thành công",
+        "current_location": "Đã giao tại TP.HCM",
+        "expected_delivery": "12/09/2026"
+      }
+    },
+    "hitl_required": false,
     "llm_provider": "GeminiProvider",
-    "llm_model": "gemini-3.5-flash",
-    "latency_ms": 916.92
+    "llm_model": "gemini-2.5-flash",
+    "latency_ms": 412.35
+  },
+  {
+    "step": 2,
+    "action_type": "TOOL_EXECUTION",
+    "thought": "Đã có thông tin đơn hàng ORD2026002 của khách hàng Trần Thị Bình (giao bởi Viettel Post). Tiếp tục thực hiện bước thứ 2: gọi tool 'schedule_pickup' để đặt lịch lấy hàng bổ sung vào lúc 09:00 ngày 20/09/2026 với đơn vị Viettel Post.",
+    "tool_name": "schedule_pickup",
+    "arguments": {
+      "order_id": "ORD2026002",
+      "pickup_datetime": "09:00 20/09/2026",
+      "carrier_name": "Viettel Post"
+    },
+    "observation": {
+      "status": "SUCCESS",
+      "pickup_id": "PU-ORD2026002-01",
+      "order_id": "ORD2026002",
+      "pickup_datetime": "09:00 20/09/2026",
+      "carrier": "Viettel Post",
+      "message": "Đặt lịch lấy hàng thành công cho đơn ORD2026002 với Viettel Post vào lúc 09:00 20/09/2026."
+    },
+    "hitl_required": false,
+    "llm_provider": "GeminiProvider",
+    "llm_model": "gemini-2.5-flash",
+    "latency_ms": 385.6
+  },
+  {
+    "step": 3,
+    "action_type": "FINAL_ANSWER",
+    "thought": "Đã hoàn thành cả 2 bước tra cứu thông tin đơn hàng và đặt lịch lấy hàng bổ sung thành công. Tổng hợp kết quả phản hồi chi tiết, lịch sự gửi khách hàng.",
+    "output": "Chào bạn, mình đã hỗ trợ xử lý xong các yêu cầu cho đơn hàng ORD2026002:\n\n1. **Thông tin đơn hàng:** Đơn hàng 'Bàn phím cơ Keychron K8' của khách hàng Trần Thị Bình đã giao thành công vào ngày 12/09/2026 bởi đơn vị Viettel Post.\n2. **Đặt lịch lấy hàng bổ sung:** Đã đặt lịch thành công với đơn vị Viettel Post vào lúc 09:00 ngày 20/09/2026 (Mã lịch hẹn: PU-ORD2026002-01).\n\nNếu cần hỗ trợ thêm thông tin nào khác, bạn cứ nhắn mình nhé!",
+    "llm_provider": "GeminiProvider",
+    "llm_model": "gemini-2.5-flash",
+    "latency_ms": 520.18
   }
 ]
