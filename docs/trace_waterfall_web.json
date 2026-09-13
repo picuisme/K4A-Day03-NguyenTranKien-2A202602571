@@ -1,0 +1,97 @@
+[
+  {
+    "step": 0,
+    "action_type": "GUARDRAIL_CHECK",
+    "keyword_guardrail_triggered": false,
+    "probabilistic_guardrail": {
+      "probability": 0.0,
+      "risk_level": "LOW",
+      "matched_signals": [],
+      "method": "heuristic_keyword_fallback"
+    },
+    "latency_ms": 0.5
+  },
+  {
+    "step": 1,
+    "action_type": "TOOL_PROPOSED",
+    "tool_name": "track_order",
+    "arguments": {
+      "order_id": "ORD2026002"
+    },
+    "thought": "[ENGINE RULE-BASED DỰ PHÒNG - còn 24s nữa mới gọi lại được API] Người dùng muốn tra cứu trạng thái đơn hàng ORD2026002.",
+    "latency_ms": 0.03
+  },
+  {
+    "step": 1,
+    "action_type": "TOOL_EXECUTION",
+    "thought": "[ENGINE RULE-BASED DỰ PHÒNG - còn 24s nữa mới gọi lại được API] Người dùng muốn tra cứu trạng thái đơn hàng ORD2026002.",
+    "tool_name": "track_order",
+    "arguments": {
+      "order_id": "ORD2026002"
+    },
+    "observation": {
+      "status": "SUCCESS",
+      "order_id": "ORD2026002",
+      "data": {
+        "customer_name": "Trần Thị Bình",
+        "product": "Bàn phím cơ Keychron K8",
+        "warehouse": "Kho Tổng Hồ Chí Minh",
+        "carrier": "Viettel Post",
+        "status": "Đã giao thành công",
+        "current_location": "Đã giao tại TP.HCM",
+        "expected_delivery": "12/09/2026"
+      }
+    },
+    "hitl_required": false,
+    "llm_provider": "RuleBasedProvider",
+    "llm_model": "RuleBased-Offline-Engine-2026",
+    "rule_based_fallback": true,
+    "latency_ms": 0.03
+  },
+  {
+    "step": 2,
+    "action_type": "TOOL_PROPOSED",
+    "tool_name": "schedule_pickup",
+    "arguments": {
+      "order_id": "ORD2026002",
+      "pickup_datetime": "09:00 20/09/2026",
+      "carrier_name": "Viettel Post"
+    },
+    "thought": "[ENGINE RULE-BASED DỰ PHÒNG - còn 24s nữa mới gọi lại được API] Đã có dữ liệu tra cứu ở bước trước, tiếp tục đặt lịch lấy hàng theo yêu cầu ban đầu.",
+    "latency_ms": 0.01
+  },
+  {
+    "step": 2,
+    "action_type": "TOOL_EXECUTION",
+    "thought": "[ENGINE RULE-BASED DỰ PHÒNG - còn 24s nữa mới gọi lại được API] Đã có dữ liệu tra cứu ở bước trước, tiếp tục đặt lịch lấy hàng theo yêu cầu ban đầu.",
+    "tool_name": "schedule_pickup",
+    "arguments": {
+      "order_id": "ORD2026002",
+      "pickup_datetime": "09:00 20/09/2026",
+      "carrier_name": "Viettel Post"
+    },
+    "observation": {
+      "status": "SUCCESS",
+      "pickup_id": "PU-ORD2026002-01",
+      "order_id": "ORD2026002",
+      "pickup_datetime": "09:00 20/09/2026",
+      "carrier": "Viettel Post",
+      "message": "Đặt lịch lấy hàng thành công cho đơn ORD2026002 với Viettel Post vào lúc 09:00 20/09/2026."
+    },
+    "hitl_required": false,
+    "llm_provider": "RuleBasedProvider",
+    "llm_model": "RuleBased-Offline-Engine-2026",
+    "rule_based_fallback": true,
+    "latency_ms": 0.01
+  },
+  {
+    "step": 3,
+    "action_type": "FINAL_ANSWER",
+    "thought": "[ENGINE RULE-BASED DỰ PHÒNG - còn 24s nữa mới gọi lại được API] Đã đủ dữ liệu quan sát từ các bước Tool trước, tổng hợp câu trả lời cuối cùng (theo luật).",
+    "output": "🧩 **[Engine rule-based offline]** — tổng hợp từ 2 kết quả Tool đã thực thi:\n\n1. Gọi `track_order` cho đơn **ORD2026002** → sản phẩm *Bàn phím cơ Keychron K8*, trạng thái **Đã giao thành công**, vị trí gần nhất: Đã giao tại TP.HCM, dự kiến giao **12/09/2026** qua **Viettel Post**.\n2. Gọi `schedule_pickup` → đã đặt lịch lấy hàng lúc **09:00 20/09/2026** với **Viettel Post** (mã phiếu `PU-ORD2026002-01`).\n\n**Kết luận:** đã xử lý xong yêu cầu cho đơn hàng **ORD2026002** dựa trên dữ liệu do MCP Server trả về.",
+    "llm_provider": "RuleBasedProvider",
+    "llm_model": "RuleBased-Offline-Engine-2026",
+    "rule_based_fallback": true,
+    "latency_ms": 0.02
+  }
+]

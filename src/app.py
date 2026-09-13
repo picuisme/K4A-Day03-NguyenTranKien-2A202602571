@@ -65,9 +65,13 @@ def get_llm_metadata(provider) -> dict:
     'Vòng lặp ReAct chạy trên LLM API THẬT' (đối chiếu cùng `latency_ms`: gọi API thật
     thường vài trăm đến vài nghìn ms, trong khi chế độ Mock offline chỉ ~0.0x ms).
     """
+    # Nếu provider là lớp bọc QuotaAwareFallbackProvider thì lấy engine THẬT SỰ đã phục vụ
+    # lượt gọi gần nhất (LLM thật hay engine rule-based dự phòng) -> log trung thực.
+    engine = getattr(provider, "active_engine", provider)
     return {
-        "llm_provider": provider.__class__.__name__,
-        "llm_model": getattr(provider, "model_name", "n/a")
+        "llm_provider": engine.__class__.__name__,
+        "llm_model": getattr(engine, "model_name", "n/a"),
+        "rule_based_fallback": bool(getattr(engine, "is_rule_based", False))
     }
 
 

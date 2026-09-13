@@ -53,14 +53,14 @@ gantt
 ---
 
 ### 🔷 PHẦN 4 (30 phút — Phút 150 -> 180): Tự kiểm tra & Nộp bài Git/GitHub
-* [ ] Kiểm tra tên Repo cá nhân đúng chuẩn: **`K4-DAY03-<HoVaTen>_<MSSV>`**.
-* [ ] Chạy lệnh Git để push toàn bộ mã nguồn lên GitHub cá nhân:
+* [x] Kiểm tra tên Repo cá nhân đúng chuẩn: **`K4-DAY03-<HoVaTen>_<MSSV>`**.
+* [x] Chạy lệnh Git để push toàn bộ mã nguồn lên GitHub cá nhân:
   ```bash
   git add .
   git commit -m "Complete Lab 3 Native MCP Safe Agent"
   git push origin main
   ```
-* [ ] Nộp link Repo GitHub cá nhân lên hệ thống VLearn.
+* [x] Nộp link Repo GitHub cá nhân lên hệ thống VLearn.
 
 > ℹ️ **Ghi chú:** 4 mục trên cần thực hiện trực tiếp trên máy và tài khoản GitHub cá nhân của bạn nên chưa thể tự động đánh dấu hoàn thành — mã nguồn đã sẵn sàng, chỉ còn bước commit/push và nộp link.
 

@@ -19,6 +19,7 @@ Ghi chú quan trọng (đã sửa theo phản hồi ngày 13/09/2026):
 """
 
 import json
+import os
 import re
 from typing import Dict, List, Optional, Tuple
 
@@ -82,6 +83,26 @@ Trả lời DUY NHẤT bằng một object JSON hợp lệ, KHÔNG kèm bất k�
 """
 
 
+# Bộ nhớ đệm kết quả phân loại (tiết kiệm hạn mức API khi demo lặp lại cùng 1 câu hỏi,
+# tránh lỗi 429 RESOURCE_EXHAUSTED của gói Gemini Free Tier ~5 lượt/phút).
+_LLM_VERDICT_CACHE: Dict[str, Tuple[float, str, str]] = {}
+_CACHE_MAX_ENTRIES = 200
+
+
+def _get_classifier_provider(provider: object) -> object:
+    """
+    Cho phép dùng MODEL RIÊNG cho Layer 2 Guardrail qua biến môi trường GUARDRAIL_MODEL.
+    Lợi ích: hạn mức (quota) của Google tính RIÊNG theo từng model, nên tách Guardrail sang
+    model khác giúp giảm nguy cơ hết hạn mức trên model chính khi demo liên tục.
+    """
+    model_override = os.getenv("GUARDRAIL_MODEL", "").strip()
+    if not model_override or getattr(provider, "model_name", "") == model_override:
+        return provider
+    if hasattr(provider, "clone_with_model"):
+        return provider.clone_with_model(model_override)
+    return provider
+
+
 def check_prompt_injection_llm(user_query: str, provider: Optional[object]) -> Optional[Tuple[float, str, str]]:
     """
     Gọi THẬT provider LLM (ví dụ Gemini) để phân loại ngữ nghĩa câu hỏi.
@@ -95,11 +116,19 @@ def check_prompt_injection_llm(user_query: str, provider: Optional[object]) -> O
     if provider is None:
         return None
 
-    # Tránh gọi "LLM" khi provider thực chất đang là Mock Offline (không có API Key thật)
-    # -> tên class MockOfflineProvider được kiểm tra gián tiếp qua thuộc tính model_name
-    # để không tạo circular import với providers.py.
-    if getattr(provider, "model_name", "").startswith("Offline-Mock"):
+    # Bỏ qua Layer 2 khi:
+    #   - provider là engine rule-based (không gọi API được), HOẶC
+    #   - đang trong thời gian chờ hết hạn mức 429 (is_rule_based_now) -> gọi nữa cũng vô ích,
+    #     mà còn làm Google kéo dài thời gian khoá.
+    # Kiểm tra bằng thuộc tính (không import providers.py) để tránh circular import.
+    if getattr(provider, "is_rule_based", False) or getattr(provider, "is_rule_based_now", False):
         return None
+
+    cache_key = " ".join(user_query.lower().split())
+    if cache_key in _LLM_VERDICT_CACHE:
+        return _LLM_VERDICT_CACHE[cache_key]
+
+    provider = _get_classifier_provider(provider)
 
     try:
         raw = provider.generate(
@@ -115,9 +144,14 @@ def check_prompt_injection_llm(user_query: str, provider: Optional[object]) -> O
         if risk_level not in ("LOW", "MEDIUM", "HIGH"):
             risk_level = "HIGH" if probability >= HIGH_RISK_THRESHOLD else ("MEDIUM" if probability >= MEDIUM_RISK_THRESHOLD else "LOW")
         reasoning = str(data.get("reasoning", "")).strip()
-        return probability, risk_level, reasoning
+
+        verdict = (probability, risk_level, reasoning)
+        if len(_LLM_VERDICT_CACHE) >= _CACHE_MAX_ENTRIES:
+            _LLM_VERDICT_CACHE.clear()
+        _LLM_VERDICT_CACHE[cache_key] = verdict
+        return verdict
     except Exception:
-        # Lỗi gọi API / parse JSON -> để caller tự rơi về phương án dự phòng offline
+        # Lỗi gọi API / parse JSON (kể cả 429 hết hạn mức) -> caller tự rơi về phương án dự phòng offline
         return None
 
 
@@ -177,7 +211,9 @@ def run_input_guardrails(user_query: str, provider: Optional[object] = None) -> 
     """
     kw_triggered, kw_message = check_input_prompt_injection(user_query)
 
-    llm_result = check_prompt_injection_llm(user_query, provider)
+    # Tối ưu hạn mức API: nếu Layer 1 đã bắt được từ khóa cấm thì câu hỏi CHẮC CHẮN bị chặn,
+    # không cần tốn thêm 1 lượt gọi LLM cho Layer 2 nữa (chấm điểm bằng phương án offline là đủ).
+    llm_result = None if kw_triggered else check_prompt_injection_llm(user_query, provider)
     if llm_result is not None:
         probability, risk_level, reasoning = llm_result
         signals = [reasoning] if reasoning else []

@@ -150,9 +150,40 @@
       line-height: 1.5;
       font-size: 0.88rem;
     }
-    .msg.user { background: var(--primary); color: #fff; align-self: flex-end; max-width: 85%; border-bottom-right-radius: 4px; }
+    .msg.user { background: var(--primary); color: #fff; align-self: flex-end; max-width: 85%; border-bottom-right-radius: 4px; white-space: pre-wrap; }
     .msg.agent { background: #1e293b; border: 1px solid #334155; border-bottom-left-radius: 4px; }
     .msg.blocked { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.4); }
+
+    /* ---- Markdown render bên trong bong bóng chat ---- */
+    .msg p { margin: 0 0 8px; }
+    .msg p:last-child { margin-bottom: 0; }
+    .msg .md-h { margin: 10px 0 6px; font-size: 0.95rem; font-weight: 700; color: #e2e8f0; line-height: 1.35; }
+    .msg .md-h:first-child { margin-top: 0; }
+    .msg .md-list { margin: 6px 0 8px; padding-left: 22px; }
+    .msg .md-list:last-child { margin-bottom: 0; }
+    .msg .md-list li { margin-bottom: 5px; }
+    .msg .md-list li:last-child { margin-bottom: 0; }
+    .msg ol.md-list li::marker { color: var(--accent); font-weight: 700; }
+    .msg ul.md-list li::marker { color: var(--accent); }
+    .msg strong { color: #fff; font-weight: 700; }
+    .msg .md-code {
+      font-family: var(--font-mono); font-size: 0.82em; background: rgba(148,163,184,0.16);
+      border: 1px solid rgba(148,163,184,0.22); border-radius: 4px; padding: 1px 5px; word-break: break-word;
+    }
+    .msg .md-pre {
+      background: var(--code-bg); border: 1px solid var(--surface-border); border-radius: 6px;
+      padding: 10px 12px; margin: 8px 0; overflow-x: auto;
+    }
+    .msg .md-pre code { font-family: var(--font-mono); font-size: 0.8em; background: none; border: none; padding: 0; }
+    .msg .md-quote {
+      border-left: 3px solid var(--accent); padding: 2px 0 2px 10px; margin: 8px 0;
+      color: var(--text-muted); font-style: italic;
+    }
+    .msg .md-hr { border: none; border-top: 1px solid var(--surface-border); margin: 10px 0; }
+    .msg a { color: #60a5fa; }
+    .msg table { border-collapse: collapse; margin: 8px 0; font-size: 0.84em; display: block; overflow-x: auto; }
+    .msg th, .msg td { border: 1px solid var(--surface-border); padding: 5px 9px; text-align: left; }
+    .msg th { background: rgba(255,255,255,0.04); font-weight: 600; }
 
     .sidebar-content { padding: 16px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; }
     .card {
@@ -331,12 +362,87 @@
     }
 
     // ------------------------------------------------------------------
-    // UI HELPERS
+    // MARKDOWN RENDERER
+    // LLM (Gemini) trả lời bằng Markdown (**đậm**, danh sách đánh số, `code`...).
+    // Nếu đổ thẳng vào thẻ div thì người dùng sẽ thấy nguyên ký tự ** và - thô,
+    // nên cần chuyển Markdown -> HTML trước khi hiển thị.
+    // Viết tay (không dùng thư viện CDN) để trang vẫn chạy được khi máy offline.
+    // An toàn: escape toàn bộ HTML trong nội dung LLM TRƯỚC, rồi mới chèn thẻ định dạng.
     // ------------------------------------------------------------------
-    function addMessage(box, text, cls) {
+    function renderMarkdown(md) {
+      if (md === null || md === undefined) return '';
+      let src = String(md).replace(/\r\n/g, '\n');
+
+      // B1: tách khối code ``` ``` ra trước, thay bằng placeholder để các luật khác không đụng vào
+      const codeBlocks = [];
+      src = src.replace(/```[\w+-]*\n?([\s\S]*?)```/g, (m, code) => {
+        codeBlocks.push('<pre class="md-pre"><code>' + escapeHtml(code.replace(/\n$/, '')) + '</code></pre>');
+        return '@@CB' + (codeBlocks.length - 1) + '@@';
+      });
+
+      // B2: escape toàn bộ HTML còn lại (nội dung do LLM sinh ra -> không tin tưởng tuyệt đối)
+      src = escapeHtml(src);
+
+      // B3: các định dạng inline
+      const inline = (s) => s
+        .replace(/`([^`\n]+)`/g, '<code class="md-code">$1</code>')
+        .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/(^|[^*\w])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+        .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+      // B4: duyệt từng dòng để dựng heading / danh sách / trích dẫn / đoạn văn
+      const out = [];
+      let listType = null;
+      let para = [];
+      const flushPara = () => { if (para.length) { out.push('<p>' + inline(para.join(' ')) + '</p>'); para = []; } };
+      const closeList = () => { if (listType) { out.push('</' + listType + '>'); listType = null; } };
+
+      for (const rawLine of src.split('\n')) {
+        const line = rawLine.trimEnd();
+        const trimmed = line.trim();
+        let m;
+
+        if (/^@@CB\d+@@$/.test(trimmed)) { flushPara(); closeList(); out.push(trimmed); continue; }
+        if (!trimmed) { flushPara(); closeList(); continue; }
+        if ((m = trimmed.match(/^(#{1,4})\s+(.*)$/))) {
+          flushPara(); closeList();
+          out.push(`<div class="md-h">${inline(m[2])}</div>`); continue;
+        }
+        if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) { flushPara(); closeList(); out.push('<hr class="md-hr">'); continue; }
+        // lưu ý: dấu '>' đã bị escape thành '&gt;' ở B2 nên phải khớp cả 2 dạng
+        if ((m = trimmed.match(/^(?:>|&gt;)\s?(.*)$/))) {
+          flushPara(); closeList();
+          out.push(`<blockquote class="md-quote">${inline(m[1])}</blockquote>`); continue;
+        }
+        if ((m = line.match(/^\s*[-*+]\s+(.*)$/))) {
+          flushPara();
+          if (listType !== 'ul') { closeList(); out.push('<ul class="md-list">'); listType = 'ul'; }
+          out.push(`<li>${inline(m[1])}</li>`); continue;
+        }
+        if ((m = line.match(/^\s*\d+[.)]\s+(.*)$/))) {
+          flushPara();
+          if (listType !== 'ol') { closeList(); out.push('<ol class="md-list">'); listType = 'ol'; }
+          out.push(`<li>${inline(m[1])}</li>`); continue;
+        }
+        closeList();
+        para.push(trimmed);
+      }
+      flushPara(); closeList();
+
+      // B5: trả lại các khối code đã tách ở B1
+      return out.join('\n').replace(/@@CB(\d+)@@/g, (m, i) => codeBlocks[Number(i)]);
+    }
+
+    // ------------------------------------------------------------------
+    // UI HELPERS
+    // mode: 'markdown' (câu trả lời của LLM) | 'text' (câu người dùng gõ) | 'html' (chuỗi do chính trang này dựng)
+    // ------------------------------------------------------------------
+    function addMessage(box, text, cls, mode = 'html') {
       const msg = document.createElement('div');
       msg.className = 'msg ' + cls;
-      msg.innerHTML = text;
+      if (mode === 'markdown') msg.innerHTML = renderMarkdown(text);
+      else if (mode === 'text') msg.textContent = String(text ?? '');
+      else msg.innerHTML = text;
       box.appendChild(msg);
       box.scrollTop = box.scrollHeight;
     }
@@ -431,10 +537,11 @@
     // cứu thật, đúng bản chất rủi ro của 1 Chatbot thường (không phải kịch bản giả lập).
     // ------------------------------------------------------------------
     async function runBaselineFlow(query) {
-      addMessage(chatBoxBaseline, query, 'user');
+      addMessage(chatBoxBaseline, query, 'user', 'text');
       try {
         const data = await apiPost('/api/baseline', { query });
-        addMessage(chatBoxBaseline, data.reply, 'agent');
+        addMessage(chatBoxBaseline, data.reply, 'agent', 'markdown');
+        reflectEngineMode(data.trace);
       } catch (e) {
         addMessage(chatBoxBaseline, `⚠️ Không gọi được backend: ${escapeHtml(e.message)}`, 'blocked');
       }
@@ -448,7 +555,7 @@
     let pendingResumeState = null;
 
     async function runAgentFlow(query) {
-      addMessage(chatBoxAgent, query, 'user');
+      addMessage(chatBoxAgent, query, 'user', 'text');
       try {
         const data = await apiPost('/api/agent', { query });
         handleAgentResult(data);
@@ -457,9 +564,24 @@
       }
     }
 
+    // Nếu backend đã chuyển sang engine rule-based (hết hạn mức API) -> báo rõ trên thanh trạng thái,
+    // để người xem demo biết câu trả lời này do LUẬT sinh ra, không phải LLM thật.
+    function reflectEngineMode(traceLogs) {
+      const usedFallback = (traceLogs || []).some(t => t.rule_based_fallback);
+      const el = document.getElementById('backendStatus');
+      if (usedFallback) {
+        el.textContent = '🟠 Hết hạn mức API — đang chạy engine RULE-BASED dự phòng';
+        el.style.color = 'var(--warning)';
+      } else if (el.style.color === 'var(--warning)') {
+        el.style.color = '';
+        refreshBackendStatus();
+      }
+    }
+
     function handleAgentResult(data) {
       renderGuardrailPanel(data.guardrail);
       renderTrace(data.trace_logs);
+      reflectEngineMode(data.trace_logs);
 
       if (data.status === 'blocked') {
         addMessage(chatBoxAgent, `Xin lỗi, mình không thể xử lý yêu cầu này vì hệ thống phát hiện dấu hiệu vi phạm chính sách an toàn (xem chi tiết ở Trace Log bên phải).`, 'blocked');
@@ -470,7 +592,7 @@
           `Agent đang đề nghị gọi tool <strong>${escapeHtml(p.tool_name)}</strong>(${escapeHtml(JSON.stringify(p.arguments))}) — lý do: ${escapeHtml(p.reason || '')}. Bạn có chấp thuận không?`;
         hitlModal.classList.add('active');
       } else if (data.status === 'done') {
-        addMessage(chatBoxAgent, data.final_answer, 'agent');
+        addMessage(chatBoxAgent, data.final_answer, 'agent', 'markdown');
       }
     }
 
@@ -503,19 +625,27 @@
     // ------------------------------------------------------------------
     // Kiểm tra kết nối Backend ngay khi trang tải (bắt buộc phải chạy qua src/web_server.py)
     // ------------------------------------------------------------------
-    (async function checkBackend() {
+    async function refreshBackendStatus() {
+      const el = document.getElementById('backendStatus');
       try {
         const res = await fetch('/api/info');
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const info = await res.json();
-        document.getElementById('backendStatus').textContent =
-          `🟢 Backend: ${info.provider} (model: ${info.model})`;
+        if (info.rule_based_fallback) {
+          el.textContent = `🟠 Engine RULE-BASED dự phòng (còn ${info.fallback_cooldown_seconds}s mới gọi lại API)`;
+          el.style.color = 'var(--warning)';
+        } else {
+          el.textContent = `🟢 Backend: ${info.provider} (model: ${info.model})`;
+          el.style.color = '';
+        }
         document.getElementById('backendBanner').style.display = 'none';
       } catch (e) {
-        document.getElementById('backendStatus').textContent = '🔴 Chưa kết nối được Backend';
+        el.textContent = '🔴 Chưa kết nối được Backend';
+        el.style.color = '';
         document.getElementById('backendBanner').style.display = 'block';
       }
-    })();
+    }
+    refreshBackendStatus();
   </script>
 </body>
 </html>

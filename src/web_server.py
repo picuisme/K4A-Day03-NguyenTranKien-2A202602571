@@ -61,7 +61,7 @@ print("==========================================================")
 print("🌐 SUPPLY CHAIN AGENT — WEB UI BACKEND (docs/demo_ui.html)")
 print("==========================================================")
 print(f"🔌 LLM Provider: {provider.__class__.__name__} (model: {getattr(provider, 'model_name', 'n/a')})")
-if provider.__class__.__name__ == "MockOfflineProvider":
+if getattr(provider, "is_rule_based", False):
     print("⚠️  Đang chạy ở chế độ MOCK OFFLINE (không có API Key thật).")
     print("    -> Chatbot Baseline sẽ trả lời bằng câu mô phỏng cố định, KHÔNG phải LLM thật.")
     print("    -> Layer 2 Guardrail sẽ tự rơi về fallback từ khóa (heuristic_keyword_fallback).")
@@ -105,10 +105,15 @@ class Handler(BaseHTTPRequestHandler):
             except FileNotFoundError:
                 self._send_json({"error": f"Không tìm thấy {DEMO_HTML_PATH}"}, status=404)
         elif self.path == "/api/info":
+            engine = getattr(provider, "active_engine", provider)
             self._send_json({
-                "provider": provider.__class__.__name__,
-                "model": getattr(provider, "model_name", "n/a"),
+                "provider": engine.__class__.__name__,
+                "model": getattr(engine, "model_name", "n/a"),
                 "llm_provider_env": os.getenv("LLM_PROVIDER", "mock"),
+                "rule_based_fallback": bool(getattr(provider, "is_rule_based_now", False)
+                                            or getattr(provider, "is_rule_based", False)),
+                "fallback_cooldown_seconds": (provider.remaining_cooldown_seconds()
+                                              if hasattr(provider, "remaining_cooldown_seconds") else 0),
             })
         elif self.path == "/favicon.ico":
             self.send_response(204)
@@ -160,8 +165,9 @@ class Handler(BaseHTTPRequestHandler):
             "trace": [{
                 "step": 1,
                 "action_type": "LLM_CALL",
+                "rule_based_fallback": bool(getattr(getattr(provider, "active_engine", provider), "is_rule_based", False)),
                 "note": "Chatbot Baseline: gọi LLM trực tiếp — KHÔNG Tool, KHÔNG Guardrail, KHÔNG dữ liệu thời gian thực.",
-                "model": getattr(provider, "model_name", "n/a"),
+                "model": getattr(getattr(provider, "active_engine", provider), "model_name", "n/a"),
                 "latency_ms": latency_ms
             }]
         }

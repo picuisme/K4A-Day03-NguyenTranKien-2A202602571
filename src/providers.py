@@ -15,6 +15,7 @@ import json
 import os
 import re
 import sys
+import time
 from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 
@@ -27,8 +28,52 @@ if sys.stdout.encoding != 'utf-8':
 load_dotenv()
 
 
+_RETRY_DELAY_RE = re.compile(r"retryDelay['\"]?\s*:\s*['\"]?(\d+)s")
+
+# Nếu Google yêu cầu chờ <= số giây này thì tự chờ rồi thử lại; lâu hơn thì báo cho người dùng.
+MAX_AUTO_RETRY_WAIT_SECONDS = int(os.getenv("MAX_AUTO_RETRY_WAIT_SECONDS", "12"))
+
+
+def parse_quota_error(error) -> Optional[int]:
+    """
+    Nhận diện lỗi hết hạn mức (429 RESOURCE_EXHAUSTED) và bóc ra số giây cần chờ.
+    Trả về số giây (int) nếu đúng là lỗi quota, ngược lại trả về None.
+    """
+    text = str(error)
+    if "RESOURCE_EXHAUSTED" not in text and "429" not in text:
+        return None
+    match = _RETRY_DELAY_RE.search(text)
+    return int(match.group(1)) if match else 60
+
+
+def format_quota_message(wait_seconds: int, model_name: str) -> str:
+    """Thông báo thân thiện (Markdown) thay cho khối JSON lỗi dài dòng của Google."""
+    return (
+        f"⏳ **Đã chạm giới hạn miễn phí của Gemini API** (lỗi `429 RESOURCE_EXHAUSTED`).\n\n"
+        f"Gói **Free Tier** chỉ cho phép khoảng **5 lượt gọi/phút** với model `{model_name}`, "
+        f"trong khi mỗi câu hỏi so sánh tiêu tốn nhiều lượt (Chatbot Baseline + Layer 2 Guardrail "
+        f"+ mỗi vòng lặp ReAct là một lượt).\n\n"
+        f"**Cách xử lý:**\n"
+        f"1. Chờ khoảng **{wait_seconds} giây** rồi hỏi lại.\n"
+        f"2. Hỏi lại đúng câu vừa rồi — kết quả Guardrail đã được lưu đệm (cache) nên tiết kiệm 1 lượt.\n"
+        f"3. Đặt `GUARDRAIL_MODEL` trong `.env` sang một model khác để tách hạn mức cho Guardrail.\n"
+        f"4. Hoặc bật thanh toán cho dự án Google Cloud để nâng hạn mức."
+    )
+
+
 class BaseLLMProvider:
     """Interface cơ sở cho các LLM Provider hỗ trợ Native Tool Calling"""
+
+    is_rule_based = False       # True nếu đây là engine suy luận theo luật, không gọi API
+    last_quota_wait = None      # Số giây cần chờ nếu lượt gọi gần nhất bị lỗi 429 (None = không lỗi)
+
+    def clone_with_model(self, model: str) -> "BaseLLMProvider":
+        """Tạo bản sao dùng model khác (phục vụ GUARDRAIL_MODEL). Mặc định: giữ nguyên."""
+        try:
+            return self.__class__(api_key=getattr(self, "api_key", None), model=model)
+        except Exception:
+            return self
+
     def generate(self, prompt: str, system_prompt: str = "") -> str:
         raise NotImplementedError
 
@@ -47,13 +92,67 @@ class BaseLLMProvider:
         raise NotImplementedError
 
 
-class MockOfflineProvider(BaseLLMProvider):
-    """Offline Mock Provider dùng để chạy thử mà không tốn API Key (chủ đề: Supply Chain Agent)"""
+class RuleBasedProvider(BaseLLMProvider):
+    """
+    🧩 ENGINE RULE-BASED OFFLINE (không gọi API, không tốn hạn mức)
+
+    Vai trò kép:
+      1. Chạy thử toàn bộ Lab khi chưa có API Key.
+      2. LÀM PHƯƠNG ÁN DỰ PHÒNG khi API thật hết hạn mức (429 RESOURCE_EXHAUSTED) —
+         xem QuotaAwareFallbackProvider phía dưới. Nhờ vậy buổi demo không bị gãy giữa chừng.
+
+    Cách hoạt động: quyết định bước tiếp theo bằng LUẬT (rule) dựa trên từ khóa trong câu hỏi
+    + danh sách Tool ĐÃ thực thi (history). Đây là suy luận theo luật cố định, KHÔNG phải
+    suy luận ngữ nghĩa như LLM — mọi câu trả lời đều được gắn nhãn rõ ràng để không gây nhầm lẫn.
+    """
+    is_rule_based = True
+
     def __init__(self):
-        self.model_name = "Offline-Mock-Model-2026"
+        self.model_name = "RuleBased-Offline-Engine-2026"
 
     def generate(self, prompt: str, system_prompt: str = "") -> str:
-        return f"[Mock Chatbot Response]: Xin chào! Tôi đã nhận được câu hỏi '{prompt}'. (Chế độ offline không dùng Tool)."
+        return (
+            "🧩 **[Engine rule-based offline]** — không gọi API nên không có dữ liệu thời gian thực.\n\n"
+            "Quy trình đặt hàng & giao vận gồm: xác nhận đơn → xuất kho → vận chuyển → giao hàng. "
+            "Để tra cứu một đơn hàng cụ thể, hãy dùng ReAct Agent ở khung bên phải (có Tool `track_order`)."
+        )
+
+    @staticmethod
+    def synthesize_final_answer(order_id: str, history: List[Dict[str, Any]]) -> str:
+        """
+        Tổng hợp câu trả lời cuối cùng bằng Markdown theo TỪNG BƯỚC, dựa trên dữ liệu THẬT
+        mà các Tool đã trả về (history) — không bịa thêm số liệu.
+        """
+        lines = [f"🧩 **[Engine rule-based offline]** — tổng hợp từ {len(history)} kết quả Tool đã thực thi:", ""]
+        for idx, entry in enumerate(history, start=1):
+            tool = entry.get("tool_name", "?")
+            obs = entry.get("observation", {}) or {}
+            data = obs.get("data", {}) if isinstance(obs, dict) else {}
+            if tool == "track_order" and data:
+                lines.append(
+                    f"{idx}. Gọi `track_order` cho đơn **{obs.get('order_id', order_id)}** → "
+                    f"sản phẩm *{data.get('product', 'N/A')}*, trạng thái **{data.get('status', 'N/A')}**, "
+                    f"vị trí gần nhất: {data.get('current_location', 'N/A')}, "
+                    f"dự kiến giao **{data.get('expected_delivery', 'N/A')}** qua **{data.get('carrier', 'N/A')}**."
+                )
+            elif tool == "schedule_pickup":
+                lines.append(
+                    f"{idx}. Gọi `schedule_pickup` → đã đặt lịch lấy hàng lúc "
+                    f"**{obs.get('pickup_datetime', 'N/A')}** với **{obs.get('carrier', 'N/A')}** "
+                    f"(mã phiếu `{obs.get('pickup_id', 'N/A')}`)."
+                )
+            elif tool == "update_order_status":
+                lines.append(
+                    f"{idx}. Gọi `update_order_status` → đã cập nhật đơn **{obs.get('order_id', order_id)}** "
+                    f"sang trạng thái **{obs.get('new_status', 'N/A')}**."
+                )
+            else:
+                lines.append(f"{idx}. Gọi `{tool}` → {json.dumps(obs, ensure_ascii=False)}")
+
+        lines.append("")
+        lines.append("**Kết luận:** đã xử lý xong yêu cầu cho đơn hàng **" + order_id + "** "
+                     "dựa trên dữ liệu do MCP Server trả về.")
+        return "\n".join(lines)
 
     def generate_with_tools(
         self,
@@ -93,11 +192,10 @@ class MockOfflineProvider(BaseLLMProvider):
 
         if executed_tools:
             # Đã có ít nhất 1 quan sát và không còn hành động tiếp theo cần làm -> tổng hợp trả lời cuối
-            last_obs = history[-1].get("observation", {})
             return {
                 "type": "text",
-                "content": f"[Mock Agent Response]: Đã xử lý xong yêu cầu cho đơn hàng {order_id}. Dữ liệu quan sát gần nhất: {json.dumps(last_obs, ensure_ascii=False)}",
-                "thought": "Đã đủ dữ liệu quan sát từ các bước Tool trước, tổng hợp câu trả lời cuối cùng."
+                "content": self.synthesize_final_answer(order_id, history),
+                "thought": "Đã đủ dữ liệu quan sát từ các bước Tool trước, tổng hợp câu trả lời cuối cùng (theo luật)."
             }
 
         # Chưa có bước Tool nào được thực thi -> quyết định hành động đầu tiên
@@ -118,9 +216,20 @@ class MockOfflineProvider(BaseLLMProvider):
         else:
             return {
                 "type": "text",
-                "content": "[Mock Agent Response]: Xin chào! Quy trình đặt hàng & giao vận bao gồm tra cứu vận đơn, đặt lịch lấy hàng và cập nhật trạng thái đơn hàng qua hệ thống trực tuyến.",
+                "content": (
+                    "🧩 **[Engine rule-based offline]**\n\n"
+                    "Mình có thể hỗ trợ 3 việc:\n"
+                    "1. Tra cứu vận đơn — Tool `track_order`\n"
+                    "2. Đặt lịch lấy hàng — Tool `schedule_pickup`\n"
+                    "3. Cập nhật trạng thái đơn hàng — Tool `update_order_status` (**cần phê duyệt HITL**)\n\n"
+                    "Hãy nêu kèm mã đơn hàng (ví dụ **ORD2026001**) để mình tra cứu giúp bạn."
+                ),
                 "thought": "Câu hỏi chung về quy trình, trả lời trực tiếp không cần gọi Tool."
             }
+
+
+# Tên cũ giữ lại để tương thích ngược với các đoạn code/tài liệu đã viết trước đó
+MockOfflineProvider = RuleBasedProvider
 
 
 class GeminiProvider(BaseLLMProvider):
@@ -151,8 +260,9 @@ class GeminiProvider(BaseLLMProvider):
         self.model_name = model or os.getenv("LLM_MODEL") or "gemini-3.5-flash"
 
     def generate(self, prompt: str, system_prompt: str = "") -> str:
+        self.last_quota_wait = None
         if not self.api_key or self.api_key == "your_gemini_api_key_here":
-            return "[Gemini Error]: Chưa cấu hình GEMINI_API_KEY trong file .env! Đang sử dụng chế độ Mock."
+            return "[Gemini Error]: Chưa cấu hình GEMINI_API_KEY trong file .env! Đang dùng engine rule-based."
         try:
             from google import genai
             client = genai.Client(api_key=self.api_key)
@@ -160,6 +270,10 @@ class GeminiProvider(BaseLLMProvider):
             response = client.models.generate_content(model=self.model_name, contents=contents)
             return response.text
         except Exception as e:
+            wait = parse_quota_error(e)
+            if wait is not None:
+                self.last_quota_wait = wait
+                return format_quota_message(wait, self.model_name)
             return f"[Gemini Exception]: {str(e)}"
 
     @staticmethod
@@ -230,8 +344,9 @@ class GeminiProvider(BaseLLMProvider):
         history: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         history = history or []
+        self.last_quota_wait = None
         if not self.api_key or self.api_key == "your_gemini_api_key_here":
-            return MockOfflineProvider().generate_with_tools(prompt, tools_schema, system_prompt, history)
+            return RuleBasedProvider().generate_with_tools(prompt, tools_schema, system_prompt, history)
         try:
             from google import genai
             from google.genai import types
@@ -257,6 +372,38 @@ class GeminiProvider(BaseLLMProvider):
                     config=config
                 )
             except Exception as api_error:
+                # Lỗi hết hạn mức (429): nếu chỉ phải chờ ngắn thì tự chờ rồi thử lại 1 lần
+                wait = parse_quota_error(api_error)
+                if wait is not None:
+                    if wait <= MAX_AUTO_RETRY_WAIT_SECONDS:
+                        print(f"⏳ [GEMINI]: Chạm giới hạn hạn mức, tự động chờ {wait + 1}s rồi thử lại...")
+                        time.sleep(wait + 1)
+                        response = client.models.generate_content(
+                            model=self.model_name,
+                            contents=self._build_contents(types, prompt, history, replay_function_calls=True),
+                            config=config
+                        )
+                        candidate = response.candidates[0]
+                        for part in candidate.content.parts:
+                            if getattr(part, "function_call", None):
+                                fc = part.function_call
+                                return {
+                                    "type": "tool_call",
+                                    "tool_name": fc.name,
+                                    "arguments": dict(fc.args) if fc.args else {},
+                                    "model_content": self._serialize_content(candidate.content),
+                                    "thought": "Gemini đề xuất gọi Tool (sau khi chờ hết giới hạn hạn mức)."
+                                }
+                        return {"type": "text", "content": response.text,
+                                "thought": "Gemini trả lời trực tiếp (sau khi chờ hết giới hạn hạn mức)."}
+                    self.last_quota_wait = wait
+                    return {
+                        "type": "text",
+                        "content": format_quota_message(wait, self.model_name),
+                        "quota_exhausted": True,
+                        "retry_after_seconds": wait,
+                        "thought": "Hết hạn mức API — cần chuyển sang engine dự phòng."
+                    }
                 # Lớp an toàn cho lỗi 400 "Function call is missing a thought_signature"
                 if "thought_signature" not in str(api_error):
                     raise
@@ -288,6 +435,16 @@ class GeminiProvider(BaseLLMProvider):
                 "thought": "Gemini trả lời trực tiếp không cần gọi Tool."
             }
         except Exception as e:
+            wait = parse_quota_error(e)
+            if wait is not None:
+                self.last_quota_wait = wait
+                return {
+                    "type": "text",
+                    "content": format_quota_message(wait, self.model_name),
+                    "quota_exhausted": True,
+                    "retry_after_seconds": wait,
+                    "thought": "Hết hạn mức API — cần chuyển sang engine dự phòng."
+                }
             return {
                 "type": "text",
                 "content": f"[Gemini Exception]: {str(e)}",
@@ -317,6 +474,9 @@ class OpenAIProvider(BaseLLMProvider):
             response = client.chat.completions.create(model=self.model_name, messages=messages)
             return response.choices[0].message.content or ""
         except Exception as e:
+            self.last_quota_wait = parse_quota_error(e)
+            if self.last_quota_wait is not None:
+                return format_quota_message(self.last_quota_wait, self.model_name)
             return f"[OpenAI Exception]: {str(e)}"
 
     def generate_with_tools(
@@ -394,6 +554,15 @@ class OpenAIProvider(BaseLLMProvider):
                 "thought": "LLM trả lời trực tiếp không cần gọi Tool."
             }
         except Exception as e:
+            self.last_quota_wait = parse_quota_error(e)
+            if self.last_quota_wait is not None:
+                return {
+                    "type": "text",
+                    "content": format_quota_message(self.last_quota_wait, self.model_name),
+                    "quota_exhausted": True,
+                    "retry_after_seconds": self.last_quota_wait,
+                    "thought": "Hết hạn mức API — cần chuyển sang engine dự phòng."
+                }
             return {
                 "type": "text",
                 "content": f"[OpenAI Exception]: {str(e)}",
@@ -422,6 +591,9 @@ class AnthropicProvider(BaseLLMProvider):
             )
             return "".join(block.text for block in response.content if block.type == "text")
         except Exception as e:
+            self.last_quota_wait = parse_quota_error(e)
+            if self.last_quota_wait is not None:
+                return format_quota_message(self.last_quota_wait, self.model_name)
             return f"[Anthropic Exception]: {str(e)}"
 
     def generate_with_tools(
@@ -489,6 +661,15 @@ class AnthropicProvider(BaseLLMProvider):
                 "thought": "LLM trả lời trực tiếp không cần gọi Tool."
             }
         except Exception as e:
+            self.last_quota_wait = parse_quota_error(e)
+            if self.last_quota_wait is not None:
+                return {
+                    "type": "text",
+                    "content": format_quota_message(self.last_quota_wait, self.model_name),
+                    "quota_exhausted": True,
+                    "retry_after_seconds": self.last_quota_wait,
+                    "thought": "Hết hạn mức API — cần chuyển sang engine dự phòng."
+                }
             return {
                 "type": "text",
                 "content": f"[Anthropic Exception]: {str(e)}",
@@ -496,29 +677,135 @@ class AnthropicProvider(BaseLLMProvider):
             }
 
 
+class QuotaAwareFallbackProvider(BaseLLMProvider):
+    """
+    🔀 LỚP TỰ ĐỘNG CHUYỂN ĐỔI KHI HẾT HẠN MỨC (429 RESOURCE_EXHAUSTED)
+
+    Bọc quanh 1 Provider LLM thật (Gemini/OpenAI/Anthropic) + 1 Engine rule-based offline:
+
+        Câu hỏi ─► [LLM thật]  ──(429 hết hạn mức)──►  [Engine rule-based]  ─► Câu trả lời
+                        ▲                                                          │
+                        └──────── tự quay lại sau khi hết thời gian chờ ◄───────────┘
+
+    Cơ chế "cooldown": ngay khi gặp 429, lớp này ghi nhận mốc thời gian cần chờ (do chính Google
+    trả về trong `retryDelay`) và chuyển TOÀN BỘ lượt gọi kế tiếp sang engine rule-based —
+    vừa giúp demo không gãy giữa chừng, vừa TRÁNH tiếp tục bắn request vào API (càng bắn càng
+    bị khoá lâu). Hết thời gian chờ, lớp này tự động quay lại dùng LLM thật mà không cần
+    khởi động lại chương trình.
+
+    Mọi câu trả lời sinh ra ở chế độ dự phòng đều được gắn cờ `rule_based_fallback=True` để
+    Trace Log và giao diện Web hiển thị rõ ràng — KHÔNG bao giờ giả vờ đó là kết quả của LLM thật.
+    """
+    is_rule_based = False
+
+    def __init__(self, primary: BaseLLMProvider, fallback: Optional[BaseLLMProvider] = None):
+        self.primary = primary
+        self.fallback = fallback or RuleBasedProvider()
+        self.quota_blocked_until = 0.0
+        self.active_engine = primary          # engine đã phục vụ lượt gọi gần nhất
+        self.fallback_activations = 0
+
+    @property
+    def model_name(self) -> str:
+        return getattr(self.primary, "model_name", "n/a")
+
+    @property
+    def is_rule_based_now(self) -> bool:
+        """Có đang trong thời gian chờ hết hạn mức (tức đang chạy bằng engine rule-based) không."""
+        return time.time() < self.quota_blocked_until
+
+    def remaining_cooldown_seconds(self) -> int:
+        return max(0, int(round(self.quota_blocked_until - time.time())))
+
+    def clone_with_model(self, model: str) -> BaseLLMProvider:
+        try:
+            return QuotaAwareFallbackProvider(self.primary.clone_with_model(model), self.fallback)
+        except Exception:
+            return self
+
+    def _activate_fallback(self, wait_seconds: int):
+        self.quota_blocked_until = time.time() + wait_seconds
+        self.fallback_activations += 1
+        print(f"🔀 [FALLBACK]: Hết hạn mức API (429) → chuyển sang engine rule-based "
+              f"'{self.fallback.model_name}' trong {wait_seconds}s. Hệ thống vẫn chạy bình thường.")
+
+    def generate(self, prompt: str, system_prompt: str = "") -> str:
+        if self.is_rule_based_now:
+            self.active_engine = self.fallback
+            return self.fallback.generate(prompt, system_prompt)
+
+        result = self.primary.generate(prompt, system_prompt)
+        if self.primary.last_quota_wait is not None:
+            self._activate_fallback(self.primary.last_quota_wait)
+            self.active_engine = self.fallback
+            return self.fallback.generate(prompt, system_prompt)
+
+        self.active_engine = self.primary
+        return result
+
+    def generate_with_tools(
+        self,
+        prompt: str,
+        tools_schema: List[Dict[str, Any]],
+        system_prompt: str = "",
+        history: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, Any]:
+        if self.is_rule_based_now:
+            self.active_engine = self.fallback
+            return self._tag_fallback(
+                self.fallback.generate_with_tools(prompt, tools_schema, system_prompt, history))
+
+        result = self.primary.generate_with_tools(prompt, tools_schema, system_prompt, history)
+        if result.get("quota_exhausted") or self.primary.last_quota_wait is not None:
+            wait = result.get("retry_after_seconds") or self.primary.last_quota_wait or 60
+            self._activate_fallback(wait)
+            self.active_engine = self.fallback
+            return self._tag_fallback(
+                self.fallback.generate_with_tools(prompt, tools_schema, system_prompt, history))
+
+        self.active_engine = self.primary
+        return result
+
+    def _tag_fallback(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        """Gắn nhãn minh bạch: kết quả này do engine rule-based sinh ra, không phải LLM thật."""
+        tagged = dict(result)
+        tagged["rule_based_fallback"] = True
+        tagged["thought"] = (
+            f"[ENGINE RULE-BASED DỰ PHÒNG - còn {self.remaining_cooldown_seconds()}s nữa mới "
+            f"gọi lại được API] " + (result.get("thought") or "")
+        )
+        return tagged
+
+
 def get_llm_provider() -> BaseLLMProvider:
     """Factory function khởi tạo Provider theo LLM_PROVIDER env variable"""
     provider_type = os.getenv("LLM_PROVIDER", "mock").lower()
 
+    # Bọc Provider thật bằng lớp tự động chuyển sang engine rule-based khi hết hạn mức API.
+    # Tắt bằng cách đặt ENABLE_RULE_BASED_FALLBACK=false trong .env (khi đó lỗi 429 sẽ hiện
+    # thẳng ra cho người dùng thay vì âm thầm chạy bằng luật).
+    enable_fallback = os.getenv("ENABLE_RULE_BASED_FALLBACK", "true").strip().lower() not in ("false", "0", "no")
+
+    def wrap(real_provider: BaseLLMProvider) -> BaseLLMProvider:
+        return QuotaAwareFallbackProvider(real_provider) if enable_fallback else real_provider
+
     if provider_type == "gemini":
         key = os.getenv("GEMINI_API_KEY")
         if key and key != "your_gemini_api_key_here":
-            return GeminiProvider()
-        print("⚠️ GEMINI_API_KEY chưa được cài đặt. Chuyển tự động sang Offline Mock Mode.")
-        return MockOfflineProvider()
+            return wrap(GeminiProvider())
+        print("⚠️ GEMINI_API_KEY chưa được cài đặt. Chuyển tự động sang Engine rule-based offline.")
+        return RuleBasedProvider()
     elif provider_type == "openai":
         key = os.getenv("OPENAI_API_KEY")
         if key and key != "your_openai_api_key_here":
-            return OpenAIProvider()
-        print("⚠️ OPENAI_API_KEY chưa được cài đặt. Chuyển tự động sang Offline Mock Mode.")
-        return MockOfflineProvider()
+            return wrap(OpenAIProvider())
+        print("⚠️ OPENAI_API_KEY chưa được cài đặt. Chuyển tự động sang Engine rule-based offline.")
+        return RuleBasedProvider()
     elif provider_type == "anthropic":
         key = os.getenv("ANTHROPIC_API_KEY")
         if key and key != "your_anthropic_api_key_here":
-            return AnthropicProvider()
-        print("⚠️ ANTHROPIC_API_KEY chưa được cài đặt. Chuyển tự động sang Offline Mock Mode.")
-        return MockOfflineProvider()
-    elif provider_type == "mock":
-        return MockOfflineProvider()
+            return wrap(AnthropicProvider())
+        print("⚠️ ANTHROPIC_API_KEY chưa được cài đặt. Chuyển tự động sang Engine rule-based offline.")
+        return RuleBasedProvider()
     else:
-        return MockOfflineProvider()
+        return RuleBasedProvider()
