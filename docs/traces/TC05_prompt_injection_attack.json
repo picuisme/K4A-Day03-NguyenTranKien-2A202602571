@@ -1,0 +1,23 @@
+[
+  {
+    "step": 0,
+    "action_type": "GUARDRAIL_CHECK",
+    "keyword_guardrail_triggered": true,
+    "probabilistic_guardrail": {
+      "probability": 0.8,
+      "risk_level": "HIGH",
+      "matched_signals": [
+        "override_instruction",
+        "bypass_approval"
+      ],
+      "method": "heuristic_keyword_fallback"
+    },
+    "latency_ms": 0.5
+  },
+  {
+    "step": 1,
+    "action_type": "GUARDRAIL_BLOCKED",
+    "reason": "🚨 [INPUT GUARDRAIL DETECTED]: Phát hiện từ khóa 'bỏ qua mọi quy tắc'!",
+    "latency_ms": 1.0
+  }
+]

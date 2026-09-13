@@ -1,6 +1,7 @@
 """
 🛠️ TOOL DEFINITIONS & NATIVE JSON SCHEMAS (Chuẩn OpenAPI / MCP Specification)
 Định nghĩa các Tool Schemas chuẩn hóa dùng cho Native Tool Calling API của LLM.
+Chủ đề: Trợ lý Đơn hàng & Kho vận (Supply Chain Agent)
 """
 
 import json
@@ -11,71 +12,67 @@ from typing import Dict, Any
 # ==============================================================================
 
 TOOLS_SCHEMA = [
-    # Tool 1: Đã mẫu sẵn cho Học viên tham khảo
+    # Tool 1: Tra cứu vận đơn / trạng thái đơn hàng
     {
-        "name": "academic_query",
-        "description": "Tra cứu hồ sơ và thông tin học vụ của sinh viên VinUni bằng mã sinh viên.",
+        "name": "track_order",
+        "description": "Tra cứu thông tin vận đơn và trạng thái hiện tại của đơn hàng theo mã đơn hàng.",
         "parameters": {
             "type": "object",
             "properties": {
-                "student_id": {
+                "order_id": {
                     "type": "string",
-                    "description": "Mã sinh viên cần tra cứu (ví dụ: 'SV2026001')"
+                    "description": "Mã đơn hàng cần tra cứu (ví dụ: 'ORD2026001')"
                 }
             },
-            "required": ["student_id"]
-        }
-    },
-    
-    # --------------------------------------------------------------------------
-    # TODO 1.2: HỌC VIÊN KHAI BÁO TOOL SCHEMA CHO 'schedule_appointment'
-    # --------------------------------------------------------------------------
-    {
-        "name": "schedule_appointment",
-        "description": "Đặt lịch hẹn tư vấn học vụ với Cố vấn học tập VinUni.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "student_id": {
-                    "type": "string",
-                    "description": "Mã sinh viên (ví dụ: 'SV2026001')"
-                },
-                "datetime_str": {
-                    "type": "string",
-                    "description": "Thời gian hẹn (ví dụ: '14:00 15/09/2026')"
-                },
-                "advisor_name": {
-                    "type": "string",
-                    "description": "Tên cố vấn (mặc định: 'PGS.TS Nguyễn Văn A')"
-                }
-            },
-            "required": ["student_id", "datetime_str"]
+            "required": ["order_id"]
         }
     },
 
-    # --------------------------------------------------------------------------
-    # TODO 1.2: HỌC VIÊN KHAI BÁO TOOL SCHEMA CHO 'update_student_profile' (NHẠY CẢM)
-    # --------------------------------------------------------------------------
+    # Tool 2: Đặt lịch lấy hàng (pickup) với đơn vị vận chuyển
     {
-        "name": "update_student_profile",
-        "description": "[HÀNH ĐỘNG NHẠY CẢM - CẦN HITL PHÊ DUYỆT] Cập nhật thông tin hồ sơ sinh viên.",
+        "name": "schedule_pickup",
+        "description": "Đặt lịch lấy hàng (pickup) với đơn vị vận chuyển cho một đơn hàng cụ thể.",
         "parameters": {
             "type": "object",
             "properties": {
-                "student_id": {
+                "order_id": {
                     "type": "string",
-                    "description": "Mã sinh viên"
+                    "description": "Mã đơn hàng (ví dụ: 'ORD2026001')"
                 },
-                "field_to_update": {
+                "pickup_datetime": {
                     "type": "string",
-                    "description": "Trường dữ liệu cần sửa (ví dụ: 'email')"
+                    "description": "Thời gian lấy hàng mong muốn (ví dụ: '09:00 20/09/2026')"
                 },
-                "new_value": {
+                "carrier_name": {
                     "type": "string",
-                    "description": "Giá trị mới cần cập nhật"
+                    "description": "Tên đơn vị vận chuyển (mặc định: 'Giao Hàng Nhanh (GHN)')"
                 }
             },
-            "required": ["student_id", "field_to_update", "new_value"]
+            "required": ["order_id", "pickup_datetime"]
+        }
+    },
+
+    # Tool 3: Cập nhật trạng thái đơn hàng (NHẠY CẢM - cần HITL)
+    {
+        "name": "update_order_status",
+        "description": "[HÀNH ĐỘNG NHẠY CẢM - CẦN HITL PHÊ DUYỆT] Cập nhật trạng thái đơn hàng (ví dụ: huỷ đơn, xác nhận giao thất bại, đổi trạng thái vận chuyển).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "order_id": {
+                    "type": "string",
+                    "description": "Mã đơn hàng cần cập nhật"
+                },
+                "new_status": {
+                    "type": "string",
+                    "description": "Trạng thái mới cần cập nhật (ví dụ: 'Đã hủy', 'Giao thất bại', 'Đã giao thành công')"
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Lý do cập nhật trạng thái"
+                }
+            },
+            "required": ["order_id", "new_status"]
         }
     }
 ]
@@ -85,73 +82,75 @@ TOOLS_SCHEMA = [
 # ==============================================================================
 
 MOCK_DATABASE = {
-    "SV2026001": {
-        "full_name": "Nguyễn Văn An",
-        "class": "AI-K4",
-        "gpa": 3.85,
-        "email": "an.nv@vinuni.edu.vn",
-        "status": "Đang học",
-        "advisor": "PGS.TS Nguyễn Văn A"
+    "ORD2026001": {
+        "customer_name": "Nguyễn Văn An",
+        "product": "Laptop Dell XPS 13",
+        "warehouse": "Kho Tổng Hà Nội",
+        "carrier": "Giao Hàng Nhanh (GHN)",
+        "status": "Đang vận chuyển",
+        "current_location": "Trung tâm phân loại Hà Nội",
+        "expected_delivery": "16/09/2026"
     },
-    "SV2026002": {
-        "full_name": "Trần Thị Bình",
-        "class": "AI-K4",
-        "gpa": 3.60,
-        "email": "binh.tt@vinuni.edu.vn",
-        "status": "Đang học",
-        "advisor": "TS. Lê Thị B"
+    "ORD2026002": {
+        "customer_name": "Trần Thị Bình",
+        "product": "Bàn phím cơ Keychron K8",
+        "warehouse": "Kho Tổng Hồ Chí Minh",
+        "carrier": "Viettel Post",
+        "status": "Đã giao thành công",
+        "current_location": "Đã giao tại TP.HCM",
+        "expected_delivery": "12/09/2026"
     }
 }
 
 
-def execute_academic_query(student_id: str) -> str:
-    """Thực thi tra cứu học vụ"""
-    student = MOCK_DATABASE.get(student_id.strip().upper())
-    if student:
+def execute_track_order(order_id: str) -> str:
+    """Thực thi tra cứu vận đơn / trạng thái đơn hàng"""
+    order = MOCK_DATABASE.get(order_id.strip().upper())
+    if order:
         return json.dumps({
             "status": "SUCCESS",
-            "student_id": student_id,
-            "data": student
+            "order_id": order_id,
+            "data": order
         }, ensure_ascii=False)
     else:
         return json.dumps({
             "status": "NOT_FOUND",
-            "message": f"Không tìm thấy dữ liệu sinh viên có mã '{student_id}'"
+            "message": f"Không tìm thấy dữ liệu đơn hàng có mã '{order_id}'"
         }, ensure_ascii=False)
 
 
-def execute_schedule_appointment(student_id: str, datetime_str: str, advisor_name: str = "PGS.TS Nguyễn Văn A") -> str:
-    """Thực thi đặt lịch hẹn tư vấn học vụ"""
+def execute_schedule_pickup(order_id: str, pickup_datetime: str, carrier_name: str = "Giao Hàng Nhanh (GHN)") -> str:
+    """Thực thi đặt lịch lấy hàng (pickup) với đơn vị vận chuyển"""
     return json.dumps({
         "status": "SUCCESS",
-        "booking_id": f"BK-{student_id}-99",
-        "student_id": student_id,
-        "datetime": datetime_str,
-        "advisor": advisor_name,
-        "message": f"Đặt lịch thành công cho sinh viên {student_id} với {advisor_name} vào lúc {datetime_str}."
+        "pickup_id": f"PU-{order_id}-01",
+        "order_id": order_id,
+        "pickup_datetime": pickup_datetime,
+        "carrier": carrier_name,
+        "message": f"Đặt lịch lấy hàng thành công cho đơn {order_id} với {carrier_name} vào lúc {pickup_datetime}."
     }, ensure_ascii=False)
 
 
-def execute_update_student_profile(student_id: str, field_to_update: str, new_value: str) -> str:
-    """Thực thi cập nhật hồ sơ sinh viên (Hành động nhạy cảm - Yêu cầu phanh HITL)"""
-    student_id_upper = student_id.strip().upper()
-    if student_id_upper in MOCK_DATABASE:
-        MOCK_DATABASE[student_id_upper][field_to_update] = new_value
+def execute_update_order_status(order_id: str, new_status: str, reason: str = "Không có ghi chú") -> str:
+    """Thực thi cập nhật trạng thái đơn hàng (Hành động nhạy cảm - Yêu cầu phanh HITL)"""
+    order_id_upper = order_id.strip().upper()
+    if order_id_upper in MOCK_DATABASE:
+        MOCK_DATABASE[order_id_upper]["status"] = new_status
         return json.dumps({
             "status": "SUCCESS",
-            "student_id": student_id_upper,
-            "updated_field": field_to_update,
-            "new_value": new_value,
-            "message": f"Đã cập nhật thành công trường '{field_to_update}' thành '{new_value}' cho SV {student_id_upper}."
+            "order_id": order_id_upper,
+            "new_status": new_status,
+            "reason": reason,
+            "message": f"Đã cập nhật trạng thái đơn hàng '{order_id_upper}' thành '{new_status}'."
         }, ensure_ascii=False)
-    return json.dumps({"status": "ERROR", "message": "Sinh viên không tồn tại!"}, ensure_ascii=False)
+    return json.dumps({"status": "ERROR", "message": "Đơn hàng không tồn tại!"}, ensure_ascii=False)
 
 
 # Router gọi tool thực tế
 TOOL_ROUTER = {
-    "academic_query": execute_academic_query,
-    "schedule_appointment": execute_schedule_appointment,
-    "update_student_profile": execute_update_student_profile
+    "track_order": execute_track_order,
+    "schedule_pickup": execute_schedule_pickup,
+    "update_order_status": execute_update_order_status
 }
 
 def dispatch_tool_call(tool_name: str, arguments: Dict[str, Any]) -> str:

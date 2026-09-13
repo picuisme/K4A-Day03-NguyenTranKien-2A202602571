@@ -30,25 +30,25 @@ gantt
 ## 📝 CHECKLIST CÁ NHÂN THEO TỪNG MỐC THỜI GIAN
 
 ### 🔷 PHẦN 1 (30 phút — Phút 00 -> 30): Đánh giá Agentic Fit & Tool Schemas
-* [ ] Chọn 1 chủ đề thực tế từ tệp `docs/DANH_SACH_DE_TAI.md`.
-* [ ] Điền bảng Scoring Matrix 4 tiêu chí Agentic Fit vào file `docs/trace_eval.md`.
-* [ ] Khai báo ít nhất 2 Tool Schemas đúng chuẩn JSON Schema vào file `src/tools.py`.
-* [ ] Thêm 5 câu test case thực tế vào file `config/test_cases.json`.
+* [x] Chọn 1 chủ đề thực tế từ tệp `docs/DANH_SACH_DE_TAI.md`. *(Đã chọn: Trợ lý Đơn hàng & Kho vận - Supply Chain Agent)*
+* [x] Điền bảng Scoring Matrix 4 tiêu chí Agentic Fit vào file `docs/trace_eval.md`. *(17/20 điểm)*
+* [x] Khai báo ít nhất 2 Tool Schemas đúng chuẩn JSON Schema vào file `src/tools.py`. *(3 tools: track_order, schedule_pickup, update_order_status)*
+* [x] Thêm 5 câu test case thực tế vào file `config/test_cases.json`.
 
 ---
 
 ### 🔷 PHẦN 2 (60 phút — Phút 30 -> 90): ReAct Agent & Phanh HITL
-* [ ] Tích hợp giao thức MCP Server mô phỏng trong `src/mcp_server.py`.
-* [ ] Lắp ráp vòng lặp ReAct Native Tool Calling trong `src/app.py`.
-* [ ] Cài đặt bộ lọc Input Prompt Injection trong `src/prompts.py`.
-* [ ] Cài đặt phanh **Human-In-The-Loop (HITL)** yêu cầu xác nhận con người (`Y/N`) với tác vụ nhạy cảm (`update_student_profile`).
+* [x] Tích hợp giao thức MCP Server mô phỏng trong `src/mcp_server.py`.
+* [x] Lắp ráp vòng lặp ReAct Native Tool Calling trong `src/app.py`. *(Đã nâng cấp: nạp lại observation từng bước cho LLM -> hỗ trợ đúng nghĩa multi-step, xác minh qua TC03 gọi thành công 2 Tool nối tiếp)*
+* [x] Cài đặt bộ lọc Input Prompt Injection trong `src/prompts.py`. *(+ bổ sung Layer 1.5 Probabilistic Guardrail trong `src/guardrails.py`)*
+* [x] Cài đặt phanh **Human-In-The-Loop (HITL)** yêu cầu xác nhận con người (`Y/N`) với tác vụ nhạy cảm (`update_order_status`).
 
 ---
 
 ### 🔷 PHẦN 3 (60 phút — Phút 90 -> 150): Chạy Kiểm thử & Xuất Trace Waterfall Log
-* [ ] Chạy lệnh `python src/app.py` cho 5 test cases.
-* [ ] Kiểm tra file vết `docs/trace_waterfall.json` xuất ra đầy đủ độ trễ (latency_ms) và chi tiết các bước.
-* [ ] Dán đoạn Trace log tóm tắt vào file `docs/trace_eval.md`.
+* [x] Chạy lệnh `python src/app.py --all` cho 5 test cases. *(5/5 chạy thành công, xem log thực tế trong `docs/trace_eval.md`)*
+* [x] Kiểm tra file vết `docs/trace_waterfall.json` xuất ra đầy đủ độ trễ (latency_ms) và chi tiết các bước.
+* [x] Dán đoạn Trace log tóm tắt vào file `docs/trace_eval.md`.
 
 ---
 
@@ -61,6 +61,8 @@ gantt
   git push origin main
   ```
 * [ ] Nộp link Repo GitHub cá nhân lên hệ thống VLearn.
+
+> ℹ️ **Ghi chú:** 4 mục trên cần thực hiện trực tiếp trên máy và tài khoản GitHub cá nhân của bạn nên chưa thể tự động đánh dấu hoàn thành — mã nguồn đã sẵn sàng, chỉ còn bước commit/push và nộp link.
 
 ---
 
